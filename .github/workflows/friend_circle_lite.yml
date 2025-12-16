@@ -11,13 +11,14 @@ env:
 
 jobs:
   friend-circle-lite:
+    name: Generate & Push Pages
     runs-on: ubuntu-latest
     permissions:
       contents: write
       actions: write
 
     steps:
-      - name: Pull Latest Repository
+      - name: Checkout Repository
         uses: actions/checkout@v4
 
       - name: Cache pip packages
@@ -28,7 +29,7 @@ jobs:
           restore-keys: |
             ${{ runner.os }}-pip-
 
-      - name: Install Python
+      - name: Setup Python
         uses: actions/setup-python@v5
         with:
           python-version: "3.12"
@@ -38,58 +39,82 @@ jobs:
           python -m pip install --upgrade pip
           pip install -r requirements.txt
 
-      - name: Ensure temp folder is not empty
+      - name: Ensure temp folder exists
         run: |
           mkdir -p ./temp
           echo "placeholder" > ./temp/.keep
 
-      - name: Download temp file artifact
+      - name: Download previous temp artifact
         uses: dawidd6/action-download-artifact@v6
         with:
-          github_token: ${{secrets.GITHUB_TOKEN}}
+          github_token: ${{ secrets.GITHUB_TOKEN }}
           branch: main
-          name: "temp"
-          path: "./temp"
+          name: temp
+          path: ./temp
           if_no_artifact_found: warn
 
-      - name: Check RSS feeds
+      - name: Run RSS checker
         env:
           SMTP_PWD: ${{ secrets.SMTP_PWD }}
           FCL_REPO: ${{ github.repository }}
         run: |
-          echo "Checking RSS feeds..."
           python run.py
-          ls ./temp
 
-      - name: Upload temp file as artifact
+      - name: Upload temp artifact
         uses: actions/upload-artifact@v4
         with:
-          name: "temp"
-          path: "./temp"
+          name: temp
+          path: ./temp
           retention-days: 30
 
-      - name: git config
+      - name: Commit and force push to page branch
         run: |
-          git config --global user.name 'github-actions[bot]'
-          git config --global user.email 'github-actions[bot]@users.noreply.github.com'
+          git config --global user.name "github-actions[bot]"
+          git config --global user.email "github-actions[bot]@users.noreply.github.com"
 
-      - name: Commit changes
-        run: |
+          rm -rf pages
           mkdir pages
-          cp -r main ./static/edgeone.json ./static/index.html ./static/readme.md ./static/favicon.ico ./static/bg-light.webp ./temp/cache.json ./static/bg-dark.webp all.json errors.json pages/
+
+          cp -r \
+            main \
+            static/edgeone.json \
+            static/index.html \
+            static/readme.md \
+            static/favicon.ico \
+            static/bg-light.webp \
+            static/bg-dark.webp \
+            temp/cache.json \
+            all.json \
+            errors.json \
+            pages/
+
           cd pages
           git init
           git add .
-          git commit -m "⏱️ $(date +"%Y年%m月%d日-%H时%M分") GitHub Actions定时更新"
-          git push --force https://x-access-token:${{ secrets.GITHUB_TOKEN }}@github.com/${{ github.repository }}.git HEAD:page
+          git commit -m "⏱️ $(date '+%Y年%m月%d日-%H时%M分') GitHub Actions 定时更新"
+          git push --force \
+            https://x-access-token:${{ secrets.GITHUB_TOKEN }}@github.com/${{ github.repository }}.git \
+            HEAD:page
 
-      - name: Trigger Vercel Deploy Hook (page)
+  trigger-vercel-deploy:
+    name: Trigger Vercel Deployment
+    needs: friend-circle-lite
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Trigger Vercel Deploy Hook (page branch)
         env:
           DEPLOY_HOOK: ${{ secrets.VERCEL_PAGE_DEPLOY_HOOK }}
         run: |
+          if [ -z "$DEPLOY_HOOK" ]; then
+            echo "❌ DEPLOY_HOOK is empty"
+            exit 1
+          fi
+
+          echo "🚀 Triggering Vercel deploy hook"
           curl -X POST -fsS "$DEPLOY_HOOK"
 
-      - name: Delete Workflow Runs
+      - name: Cleanup old workflow runs
         uses: Mattraks/delete-workflow-runs@v2
         with:
           retain_days: 30
@@ -98,7 +123,7 @@ jobs:
   keepalive-workflow:
     name: Keepalive Workflow
     if: ${{ always() }}
-    needs: friend-circle-lite
+    needs: trigger-vercel-deploy
     runs-on: ubuntu-latest
     permissions:
       actions: write
