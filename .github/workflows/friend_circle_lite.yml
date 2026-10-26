@@ -76,7 +76,8 @@ jobs:
       - name: Commit changes
         run: |
           mkdir pages
-          cp -r main ./static/index.html ./static/readme.md ./static/favicon.ico ./static/bg-light.webp ./temp/cache.json ./static/bg-dark.webp all.json errors.json vercel.json pages/
+          # RSS 缓存已迁移到 SQLite，由上面的 temp artifact 保存，不作为公开文件发布。
+          cp -r main ./static/index.html ./static/readme.md ./static/favicon.ico ./static/bg-light.webp ./static/bg-dark.webp all.json errors.json vercel.json pages/
           cd pages
           git init
           git add .
